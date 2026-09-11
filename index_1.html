@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MotoRush 2D</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Outfit', sans-serif;
+            height: 100dvh;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #canvas {
+            display: block;
+            position: fixed;
+            top: 0; left: 0;
+        }
+
+        /* ---- Overlays ---- */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0,0,0,0.78);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 50;
+            text-align: center;
+            padding: 24px;
+        }
+        .overlay.hidden { display: none; }
+        .overlay h1 {
+            font-size: clamp(32px, 8vw, 48px);
+            font-weight: 800;
+            color: #ff5722;
+            margin-bottom: 6px;
+            text-shadow: 0 2px 24px rgba(255,87,34,0.5);
+            letter-spacing: -0.5px;
+        }
+        .overlay h2 {
+            font-size: clamp(16px, 4vw, 22px);
+            font-weight: 400;
+            color: #bbb;
+            margin-bottom: 2px;
+        }
+        .overlay p {
+            font-size: 15px;
+            color: #888;
+            margin: 6px 0;
+            line-height: 1.5;
+        }
+        .score-text {
+            font-size: clamp(24px, 6vw, 32px) !important;
+            font-weight: 700 !important;
+            color: #fff !important;
+            margin: 12px 0 4px !important;
+        }
+        .high-text {
+            font-size: 16px !important;
+            color: #ffcc00 !important;
+            font-weight: 600 !important;
+        }
+        .btn {
+            padding: 14px 40px;
+            font-size: 17px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #4CAF50, #2e7d32);
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            margin-top: 24px;
+            box-shadow: 0 4px 18px rgba(76,175,80,0.35);
+            transition: transform 0.1s, box-shadow 0.1s;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn:active {
+            transform: scale(0.95);
+            box-shadow: 0 2px 8px rgba(76,175,80,0.3);
+        }
+
+        /* ---- Pause Button ---- */
+        #pause-btn {
+            position: fixed;
+            top: 14px;
+            right: 14px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.45);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            outline: none;
+            transition: background 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #pause-btn:active { background: rgba(255,255,255,0.2); }
+        #pause-btn.hidden { display: none; }
+
+        .hint { margin-top: 36px; font-size: 13px !important; color: #555 !important; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <button id="pause-btn" class="hidden">⏸</button>
+
+    <div id="start-screen" class="overlay">
+        <h2>Welcome to</h2>
+        <h1>MotoRush 2D</h1>
+        <p>Swipe or use Arrow Keys to dodge obstacles</p>
+        <p>Go faster as you score more!</p>
+        <button class="btn" id="start-btn">Start Game</button>
+        <p class="hint">Swipe &middot; Arrow Keys &middot; A / D</p>
+    </div>
+
+    <div id="gameover-screen" class="overlay hidden">
+        <h1>Game Over</h1>
+        <p class="score-text" id="final-score">Score: 0</p>
+        <p class="high-text" id="high-score">Best: 0</p>
+        <button class="btn" id="restart-btn">Play Again</button>
+    </div>
+
+    <div id="pause-screen" class="overlay hidden">
+        <h2>Paused</h2>
+        <button class="btn" id="resume-btn">Resume</button>
+        <p class="hint">Press Esc or P to resume</p>
+    </div>
+
+    <!-- Audio -->
+    <audio id="snd-engine" loop><source src="./assets/sounds/car_run.mp3" type="audio/mpeg"></audio>
+    <audio id="snd-crash"><source src="https://assets.mixkit.co/sfx/preview/mixkit-car-crash-with-explosion-1617.mp3" type="audio/mpeg"></audio>
+    <audio id="snd-coin"><source src="./assets/sounds/coin.mp3" type="audio/mpeg"></audio>
+    <audio id="snd-music" src="./assets/sounds/instrumental.mp3" loop></audio>
+
+    <script>
+    (() => {
+        'use strict';
+
+        // ===================== CANVAS =====================
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function W() { return window.innerWidth; }
+        function H() { return window.innerHeight; }
+
+        // ===================== ASSETS =====================
+        const img = {};
+        const imgAspect = {};
+        const assetMap = {
+            player:     './assets/Audi.png',
+            car:        './assets/Car.png',
+            police:     './assets/Police.png',
+            truck:      './assets/truck.png',
+            ambulance:  './assets/Ambulance.png',
+            viper:      './assets/Black_viper.png',
+            minitruck:  './assets/Mini_truck.png',
+            minivan:    './assets/Mini_van.png',
+            taxi:       './assets/taxi.png',
+            cone:       './assets/cone.png'
+        };
+        for (const [k, src] of Object.entries(assetMap)) {
+            const i = new Image();
+            i.onload = () => { imgAspect[k] = i.naturalHeight / i.naturalWidth; };
+            i.src = src;
+            img[k] = i;
+        }
+
+        // Animated sprites (police siren, ambulance lights)
+        const animFrames = { police: [], ambulance: [] };
+        for (let f = 1; f <= 3; f++) {
+            const pi = new Image(); pi.src = `./assets/Animations/Police_animation/${f}.png`;
+            animFrames.police.push(pi);
+            const ai = new Image(); ai.src = `./assets/Animations/ambulance_animation/${f}.png`;
+            animFrames.ambulance.push(ai);
+        }
+
+        const OBS_VEHICLES = ['car', 'police', 'truck', 'ambulance', 'viper', 'minitruck', 'minivan', 'taxi'];
+        const OBS_HAZARDS  = ['cone'];
+        const OBS_ALL      = [...OBS_VEHICLES, ...OBS_HAZARDS];
+
+        // Audio
+        const snd = {
+            engine: document.getElementById('snd-engine'),
+            crash:  document.getElementById('snd-crash'),
+            coin:   document.getElementById('snd-coin'),
+            music:  document.getElementById('snd-music')
+        };
+
+        // ===================== CONSTANTS =====================
+        const MOVE_SPD   = 1.2;    // xRatio per second (keyboard)
+        const BASE_SPD   = 300;    // obstacle base speed px/s
+        const X_MIN      = 0.08;   // leftmost car position (ratio of road)
+        const X_MAX      = 0.92;   // rightmost
+        const HB_SHRINK  = 0.18;   // hitbox shrink factor per side
+        const MIN_CAR_W  = 50;     // minimum car width in px
+        const CLOSE_CALL_DIST = 0.08; // x-ratio proximity for close call bonus
+
+        // ===================== STATE =====================
+        let state       = 'MENU'; // MENU | PLAYING | PAUSED | OVER
+        let score       = 0;
+        let highScore   = +(localStorage.getItem('motorush_hs') || 0);
+        let speedMul    = 1;
+        let roadScroll  = 0;
+        let lastSpawn   = 0;
+        let spawnDelay  = 1500;
+        let lastFrame   = 0;
+        let lastCoinSnd = 0;
+        let rafId       = null;
+
+        const player    = { x: 0.5 };
+        const obstacles = [];
+        const particles = [];
+        const floatingTexts = [];  // close call popups
+        const keys      = { l: false, r: false };
+        let touchX      = 0;
+        let animTimer   = 0;       // for animated sprites
+
+        // ===================== HELPERS =====================
+        // Responsive road width: wider on narrow screens
+        const rw  = () => {
+            const w = W();
+            if (w < 500) return w * 0.88;       // phone portrait
+            if (w < 768) return w * 0.75;       // phone landscape / small tablet
+            if (w < 1024) return w * 0.6;       // tablet
+            return Math.min(w * 0.5, 700);      // desktop (capped)
+        };
+        const rl  = () => (W() - rw()) / 2;
+        const rr  = () => rl() + rw();
+        const pw  = () => Math.max(MIN_CAR_W, rw() * 0.16);
+        const ph  = () => pw() * (imgAspect.player || 2);
+        const ppx = () => rl() + player.x * rw() - pw() / 2;
+        const ppy = () => H() - ph() - 24;
+
+        const $ = id => document.getElementById(id);
+
+        // ===================== INPUT =====================
+        document.addEventListener('keydown', e => {
+            if (e.repeat) return;
+            const k = e.key;
+            if (k === 'Escape' || k === 'p' || k === 'P') {
+                if (state === 'PLAYING') pause();
+                else if (state === 'PAUSED') resume();
+                return;
+            }
+            if (state !== 'PLAYING') return;
+            if (k === 'ArrowLeft'  || k === 'a' || k === 'A') { e.preventDefault(); keys.l = true; }
+            if (k === 'ArrowRight' || k === 'd' || k === 'D') { e.preventDefault(); keys.r = true; }
+        });
+        document.addEventListener('keyup', e => {
+            const k = e.key;
+            if (k === 'ArrowLeft'  || k === 'a' || k === 'A') keys.l = false;
+            if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.r = false;
+        });
+
+        canvas.addEventListener('touchstart', e => {
+            if (state !== 'PLAYING') return;
+            e.preventDefault();
+            touchX = e.touches[0].clientX;
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', e => {
+            if (state !== 'PLAYING') return;
+            e.preventDefault();
+            const tx = e.touches[0].clientX;
+            const dx = tx - touchX;
+            if (Math.abs(dx) > 3) {
+                player.x += dx / rw() * 0.85;
+                player.x = Math.max(X_MIN, Math.min(X_MAX, player.x));
+                touchX = tx;
+            }
+        }, { passive: false });
+
+        // Auto-pause on tab switch / focus loss
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && state === 'PLAYING') pause();
+        });
+        window.addEventListener('blur', () => {
+            if (state === 'PLAYING') pause();
+            keys.l = keys.r = false;
+        });
+
+        // ===================== SPAWN / PARTICLES / CLOSE CALLS =====================
+        function spawn() {
+            const baseW = pw();
+            // Cones are smaller
+            const isCone = Math.random() < 0.12;
+            const type = isCone
+                ? 'cone'
+                : OBS_VEHICLES[(Math.random() * OBS_VEHICLES.length) | 0];
+            const sv = isCone ? 0.4 + Math.random() * 0.2 : 0.85 + Math.random() * 0.3;
+            const aspect = imgAspect[type] || 1;
+            const w = baseW * sv;
+            const h = w * aspect;
+            obstacles.push({
+                x: X_MIN + Math.random() * (X_MAX - X_MIN),
+                y: -h - 10,
+                w: w,
+                h: h,
+                type: type,
+                closeCallAwarded: false
+            });
+        }
+
+        function checkCloseCall(o) {
+            // Check if obstacle passed the player vertically and was close horizontally
+            const py = ppy(), pBottom = py + ph();
+            const oBottom = o.y + o.h;
+            // Obstacle just passed the player's top
+            if (oBottom > py && o.y < pBottom && !o.closeCallAwarded) {
+                const dx = Math.abs(player.x - o.x);
+                if (dx < CLOSE_CALL_DIST) {
+                    // Very close — bigger bonus
+                    o.closeCallAwarded = true;
+                    const bonus = 500;
+                    score += bonus;
+                    spawnFloatingText(o, 'CLOSE CALL! +' + bonus, '#ff4444');
+                    burst(ppx() + pw() / 2, ppy() + ph() / 2, 8);
+                    return;
+                }
+                if (dx < CLOSE_CALL_DIST * 2.5) {
+                    o.closeCallAwarded = true;
+                    const bonus = 200;
+                    score += bonus;
+                    spawnFloatingText(o, 'NEAR MISS +' + bonus, '#ffcc00');
+                    return;
+                }
+            }
+        }
+
+        function spawnFloatingText(o, text, color) {
+            const ox = rl() + o.x * rw();
+            floatingTexts.push({
+                x: ox, y: o.y,
+                text: text,
+                color: color,
+                life: 1.2,
+                vy: -80
+            });
+        }
+
+        function burst(cx, cy, n) {
+            for (let i = 0; i < n; i++) {
+                const a = Math.random() * 6.283;
+                const spd = 50 + Math.random() * 120;
+                particles.push({
+                    x: cx, y: cy,
+                    vx: Math.cos(a) * spd,
+                    vy: Math.sin(a) * spd,
+                    life: 1,
+                    decay: 1.2 + Math.random() * 1.2,
+                    sz: 2 + Math.random() * 5,
+                    hue: 25 + Math.random() * 40
+                });
+            }
+        }
+
+        // ===================== COLLISION =====================
+        function hit(o) {
+            const px = ppx(), py = ppy(), cw = pw(), ch = ph();
+            const ox = rl() + o.x * rw() - o.w / 2;
+            const s = HB_SHRINK;
+            return !(
+                px + cw * (1 - s) < ox + o.w * s ||
+                px + cw * s       > ox + o.w * (1 - s) ||
+                py + ch * (1 - s) < o.y + o.h * s ||
+                py + ch * s       > o.y + o.h * (1 - s)
+            );
+        }
+
+        // ===================== UPDATE =====================
+        function update(dt) {
+            // Player
+            if (keys.l) player.x = Math.max(X_MIN, player.x - MOVE_SPD * dt);
+            if (keys.r) player.x = Math.min(X_MAX, player.x + MOVE_SPD * dt);
+
+            // Road
+            const spd = BASE_SPD * speedMul;
+            roadScroll = (roadScroll + spd * dt) % 80;
+
+            // Animation timer
+            animTimer += dt;
+
+            // Spawn
+            const now = performance.now();
+            if (now - lastSpawn > spawnDelay) {
+                spawn();
+                lastSpawn = now;
+                spawnDelay = Math.max(400, 1500 - speedMul * 300);
+            }
+
+            // Obstacles
+            const h = H();
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const o = obstacles[i];
+                o.y += spd * dt;
+
+                // Close call detection (while obstacle overlaps player Y range)
+                checkCloseCall(o);
+
+                if (o.y > h + 30) {
+                    obstacles.splice(i, 1);
+                    score += 100;
+                    if (now - lastCoinSnd > 400) {
+                        snd.coin.volume = 0.1;
+                        snd.coin.currentTime = 0;
+                        snd.coin.play().catch(() => {});
+                        lastCoinSnd = now;
+                    }
+                    if (score % 300 === 0) {
+                        speedMul = Math.min(4, speedMul + 0.15);
+                        burst(ppx() + pw() / 2, ppy(), 14);
+                    }
+                    continue;
+                }
+                if (hit(o)) { over(); return; }
+            }
+
+            // Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.life -= p.decay * dt;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            // Floating texts
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                ft.y += ft.vy * dt;
+                ft.life -= dt;
+                if (ft.life <= 0) floatingTexts.splice(i, 1);
+            }
+
+            // Engine pitch
+            snd.engine.playbackRate = 0.8 + speedMul * 0.2;
+        }
+
+        // ===================== DRAW =====================
+        function draw() {
+            const w = W(), h = H();
+            const _rl = rl(), _rw = rw(), _rr = rr();
+
+            // Background
+            ctx.fillStyle = '#0d1a0d';
+            ctx.fillRect(0, 0, w, h);
+
+            // Shoulder texture (subtle stripes)
+            ctx.fillStyle = '#111d11';
+            ctx.fillRect(_rl - 12, 0, 12, h);
+            ctx.fillRect(_rr, 0, 12, h);
+
+            // Road surface
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(_rl, 0, _rw, h);
+
+            // Edge lines
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(_rl, 0, 4, h);
+            ctx.fillRect(_rr - 4, 0, 4, h);
+
+            // Lane dashes (3 lanes = 2 dividers)
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([42, 32]);
+            ctx.lineDashOffset = -roadScroll * 3;
+            for (let lane = 1; lane <= 2; lane++) {
+                const lx = _rl + _rw * (lane / 3);
+                ctx.beginPath();
+                ctx.moveTo(lx, 0);
+                ctx.lineTo(lx, h);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+
+            // Obstacles
+            const animFrame = (animTimer * 6 | 0) % 3;
+            const FLIP_TYPES = new Set(['ambulance', 'viper', 'minitruck', 'minivan']);
+            for (const o of obstacles) {
+                const ox = _rl + o.x * _rw - o.w / 2;
+                let drawImg;
+                if (o.type === 'police' && animFrames.police[animFrame]?.complete) {
+                    drawImg = animFrames.police[animFrame];
+                } else if (o.type === 'ambulance' && animFrames.ambulance[animFrame]?.complete) {
+                    drawImg = animFrames.ambulance[animFrame];
+                } else {
+                    drawImg = img[o.type];
+                }
+                if (drawImg?.complete && drawImg.naturalWidth) {
+                    if (FLIP_TYPES.has(o.type)) {
+                        ctx.save();
+                        ctx.translate(ox + o.w / 2, o.y + o.h / 2);
+                        ctx.rotate(Math.PI);
+                        ctx.drawImage(drawImg, -o.w / 2, -o.h / 2, o.w, o.h);
+                        ctx.restore();
+                    } else {
+                        ctx.drawImage(drawImg, ox, o.y, o.w, o.h);
+                    }
+                }
+            }
+
+            // Player shadow
+            const _pw = pw(), _ph = ph(), _px = ppx(), _py = ppy();
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(_px + _pw / 2, _py + _ph + 4, _pw * 0.38, 5, 0, 0, 6.283);
+            ctx.fill();
+
+            // Player car
+            const pi = img.player;
+            if (pi.complete && pi.naturalWidth) {
+                ctx.drawImage(pi, _px, _py, _pw, _ph);
+            }
+
+            // Particles
+            for (const p of particles) {
+                ctx.globalAlpha = Math.max(0, p.life);
+                ctx.fillStyle = `hsl(${p.hue},100%,60%)`;
+                const s = p.sz * p.life;
+                ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+            }
+            ctx.globalAlpha = 1;
+
+            // Floating bonus texts
+            for (const ft of floatingTexts) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, ft.life / 1.2);
+                ctx.font = 'bold 16px Outfit, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = ft.color;
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.shadowBlur = 4;
+                ctx.fillText(ft.text, ft.x, ft.y);
+                ctx.restore();
+            }
+
+            // HUD
+            if (state === 'PLAYING' || state === 'PAUSED') {
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.6)';
+                ctx.shadowBlur = 6;
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 18px Outfit, sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText('Score: ' + score, 16, 34);
+
+                ctx.font = '14px Outfit, sans-serif';
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillText((40 + speedMul * 35 | 0) + ' km/h', 16, 56);
+                ctx.restore();
+            }
+        }
+
+        // ===================== GAME LOOP =====================
+        function loop(ts) {
+            if (state !== 'PLAYING') return;
+            if (!lastFrame) lastFrame = ts;
+            const dt = Math.min((ts - lastFrame) / 1000, 0.05);
+            lastFrame = ts;
+
+            update(dt);
+            draw();
+            rafId = requestAnimationFrame(loop);
+        }
+
+        // ===================== STATE TRANSITIONS =====================
+        function start() {
+            state       = 'PLAYING';
+            score       = 0;
+            speedMul    = 1;
+            roadScroll  = 0;
+            spawnDelay  = 1500;
+            player.x    = 0.5;
+            obstacles.length = 0;
+            particles.length = 0;
+            floatingTexts.length = 0;
+            keys.l = keys.r = false;
+            lastSpawn   = performance.now();
+            lastFrame   = 0;
+            animTimer   = 0;
+
+            $('start-screen').classList.add('hidden');
+            $('gameover-screen').classList.add('hidden');
+            $('pause-btn').classList.remove('hidden');
+
+            snd.music.volume = 0.2;
+            snd.music.currentTime = 0;
+            snd.music.play().catch(() => {});
+            snd.engine.currentTime = 0;
+            snd.engine.volume = 0.3;
+            snd.engine.play().catch(() => {});
+
+            rafId = requestAnimationFrame(loop);
+        }
+
+        function pause() {
+            if (state !== 'PLAYING') return;
+            state = 'PAUSED';
+            cancelAnimationFrame(rafId);
+            snd.engine.pause();
+            snd.music.pause();
+            keys.l = keys.r = false;
+            $('pause-screen').classList.remove('hidden');
+            $('pause-btn').classList.add('hidden');
+        }
+
+        function resume() {
+            if (state !== 'PAUSED') return;
+            state = 'PLAYING';
+            $('pause-screen').classList.add('hidden');
+            $('pause-btn').classList.remove('hidden');
+            snd.engine.play().catch(() => {});
+            snd.music.play().catch(() => {});
+            lastFrame = 0;
+            rafId = requestAnimationFrame(loop);
+        }
+
+        function over() {
+            state = 'OVER';
+            cancelAnimationFrame(rafId);
+            snd.engine.pause();
+            snd.music.pause();
+            snd.crash.currentTime = 0;
+            snd.crash.play().catch(() => {});
+            keys.l = keys.r = false;
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('motorush_hs', String(highScore));
+            }
+
+            $('final-score').textContent = 'Score: ' + score;
+            $('high-score').textContent = 'Best: ' + highScore;
+            $('gameover-screen').classList.remove('hidden');
+            $('pause-btn').classList.add('hidden');
+
+            // Final frame
+            draw();
+
+            // Send to API
+            // sendScore(score);
+        }
+
+        // function sendScore(s) {
+        //     const uid = new URLSearchParams(location.search).get('id');
+        //     if (!uid) return;
+        //     const fd = new FormData();
+        //     fd.append('user', uid);
+        //     fd.append('score', s);
+        //     fetch('https://www.motomap.in/Game_Center/add_motorush_score', {
+        //         method: 'POST', body: fd
+        //     }).catch(() => {});
+        // }
+
+        // ===================== UI HANDLERS =====================
+        $('start-btn').addEventListener('click', start);
+        $('restart-btn').addEventListener('click', start);
+        $('resume-btn').addEventListener('click', resume);
+
+        const pb = $('pause-btn');
+        pb.addEventListener('click', e => { e.stopPropagation(); pause(); });
+        pb.addEventListener('touchend', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            pause();
+        });
+
+        // High score display on start
+        if (highScore > 0) {
+            $('high-score').textContent = 'Best: ' + highScore;
+        }
+
+        // Initial background draw
+        draw();
+    })();
+    </script>
+</body>
+</html>

@@ -75,7 +75,6 @@
             background-size: contain;
             background-repeat: no-repeat;
             z-index: 10;
-            transition: left 0.15s ease-out;
             image-rendering: crisp-edges;
         }
         
@@ -111,6 +110,18 @@
             font-weight: bold;
             text-shadow: 1px 1px 2px black;
             z-index: 20;
+        }
+        
+        #pause-button {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 70%;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 20;
+            text-shadow: 1px 1px 2px black;
         }
         
         #game-over {
@@ -231,14 +242,15 @@
         <div id="player-car"></div>
         <div id="score-display">Score: 0</div>
         <div id="speed-display">Speed: 3</div>
+        <div id="pause-button">⏸️</div>
         
         <div id="start-screen">
             <h2>Welcome to</h2>
             <h1>MotoRush</h1>
-            <p>Swipe left and right to dodge obstacles</p>
+            <p>Swipe or use Left/Right keys to dodge obstacles</p>
             <p>Go faster as you score more points!</p>
             <button class="button" id="start-button">Start Game</button>
-            <div id="controls-info">Swipe left/right to move</div>
+            <div id="controls-info">Swipe or Arrow Keys to move</div>
         </div>
         
         <div id="game-over">
@@ -280,6 +292,7 @@
         const finalScore = document.getElementById('final-score');
         const startButton = document.getElementById('start-button');
         const restartButton = document.getElementById('restart-button');
+        const pauseButton = document.getElementById('pause-button');
         
         // Audio elements
         const engineSound = document.getElementById('engineSound');
@@ -304,15 +317,14 @@
         let lastScoreSound = 0;
         let hitboxes = [];
         let lastObstacleDelay = 1500;
+        let keys = { left: false, right: false };
 
         let isPaused = false;
         const pauseScreen = document.getElementById('pause-screen');
         const resumeButton = document.getElementById('resume-button');
 
-        document.addEventListener('DOMContentLoaded', function () {
-    const resumeButton = document.getElementById('resume-button');
-    resumeButton.addEventListener('click', resumeGame);
-});
+        resumeButton.addEventListener('click', resumeGame);
+        pauseButton.addEventListener('click', pauseGame);
 
         
         // Free assets from OpenGameArt
@@ -330,6 +342,10 @@
         gameContainer.addEventListener('touchmove', handleTouchMove, { passive: false });
         startButton.addEventListener('click', startGame);
         restartButton.addEventListener('click', restartGame);
+        
+        // Keyboard event listeners
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
         
         // Handle touch start
         function handleTouchStart(e) {
@@ -374,6 +390,47 @@
                 
                 touchStartX = touchX;
             }
+        }
+        
+        // Handle keyboard controls
+        function handleKeyDown(e) {
+            if (!gameRunning || isGameOver || isPaused) {
+                if (e.key === 'Escape' && gameRunning && !isGameOver) {
+                    if (isPaused) resumeGame();
+                    else pauseGame();
+                }
+                return;
+            }
+            
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                keys.left = true;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                keys.right = true;
+            } else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+                pauseGame();
+            }
+        }
+
+        function handleKeyUp(e) {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                keys.left = false;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                keys.right = false;
+            }
+        }
+
+        function updateCarFromKeys() {
+            if (keys.left) {
+                carPosition = Math.max(10, carPosition - 1.5);
+            }
+            if (keys.right) {
+                carPosition = Math.min(90, carPosition + 1.5);
+            }
+            
+            const roadWidth = gameContainer.offsetWidth;
+            const roadLeft = (roadWidth - road.offsetWidth) / 2;
+            const carPixelPos = roadLeft + (road.offsetWidth * carPosition / 100) - (60 / 2);
+            playerCar.style.left = carPixelPos + 'px';
         }
         
         // Create a new obstacle
@@ -606,6 +663,7 @@
             clearInterval(obstacleInterval);
             finalScore.textContent = 'Score: ' + score;
             gameOverScreen.style.display = 'flex';
+            pauseButton.style.display = 'none';
             
             // Stop engine sound and play crash
             engineSound.pause();
@@ -668,6 +726,7 @@
             carPosition = 50;
             scoreDisplay.textContent = 'Score: 0';
             speedDisplay.textContent = 'Speed: 3';
+            pauseButton.style.display = 'block';
             
             // Reset car position
             const roadLeft = (gameContainer.offsetWidth - road.offsetWidth) / 2;
@@ -692,6 +751,7 @@
             // Start game loop
             function gameLoop() {
                 if (!isGameOver) {
+                    updateCarFromKeys();
                     updateObstacles();
                     updateRoad();
                     if (showHitboxes) updatePlayerHitbox(playerHitbox);
@@ -729,22 +789,14 @@
             clearInterval(obstacleInterval);
             engineSound.pause();
             pauseScreen.style.display = 'flex';
+            pauseButton.style.display = 'none';
         }
-
-        // document.addEventListener('keydown', (e) => {
-        //     if (e.key === 'Escape' && gameRunning && !isGameOver) {
-        //         if (!isPaused) {
-        //             pauseGame();
-        //         } else {
-        //             resumeGame();
-        //         }
-        //     }
-        // });
 
         function resumeGame() {
             if (!isPaused || isGameOver) return;
             isPaused = false;
             pauseScreen.style.display = 'none';
+            pauseButton.style.display = 'block';
             engineSound.play();
 
             // Resume obstacle generation
@@ -753,6 +805,7 @@
             // Resume animation loop
             function gameLoop() {
                 if (!isGameOver && !isPaused) {
+                    updateCarFromKeys();
                     updateObstacles();
                     updateRoad();
                     if (showHitboxes) updatePlayerHitbox(document.getElementById('player-hitbox'));
