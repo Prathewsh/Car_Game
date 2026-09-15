@@ -151,6 +151,7 @@
     <audio id="snd-crash"><source src="https://assets.mixkit.co/sfx/preview/mixkit-car-crash-with-explosion-1617.mp3" type="audio/mpeg"></audio>
     <audio id="snd-coin"><source src="./assets/sounds/coin.mp3" type="audio/mpeg"></audio>
     <audio id="snd-music" src="./assets/sounds/instrumental.mp3" loop></audio>
+    <audio id="snd-ambulance" src="./assets/sounds/ambulance.mp3" loop></audio>
 
     <script>
     (() => {
@@ -180,7 +181,7 @@
         const img = {};
         const imgAspect = {};
         const assetMap = {
-            player:     './assets/Audi.png',
+            player:     './assets/3dcar_small.png',
             car:        './assets/Car.png',
             police:     './assets/Police.png',
             truck:      './assets/truck.png',
@@ -193,7 +194,13 @@
         };
         for (const [k, src] of Object.entries(assetMap)) {
             const i = new Image();
-            i.onload = () => { imgAspect[k] = i.naturalHeight / i.naturalWidth; };
+            i.onload = () => { 
+                if (k === 'player') {
+                    imgAspect[k] = i.naturalWidth / i.naturalHeight;
+                } else {
+                    imgAspect[k] = i.naturalHeight / i.naturalWidth; 
+                }
+            };
             i.src = src;
             img[k] = i;
         }
@@ -216,7 +223,8 @@
             engine: document.getElementById('snd-engine'),
             crash:  document.getElementById('snd-crash'),
             coin:   document.getElementById('snd-coin'),
-            music:  document.getElementById('snd-music')
+            music:  document.getElementById('snd-music'),
+            ambulance: document.getElementById('snd-ambulance')
         };
 
         // ===================== CONSTANTS =====================
@@ -259,7 +267,8 @@
         };
         const rl  = () => (W() - rw()) / 2;
         const rr  = () => rl() + rw();
-        const pw  = () => Math.max(MIN_CAR_W, rw() * 0.16);
+        const baseObstacleW = () => Math.max(MIN_CAR_W, rw() * 0.16);
+        const pw  = () => baseObstacleW() * 0.45;
         const ph  = () => pw() * (imgAspect.player || 2);
         const ppx = () => rl() + player.x * rw() - pw() / 2;
         const ppy = () => H() - ph() - 24;
@@ -314,7 +323,7 @@
 
         // ===================== SPAWN / PARTICLES / CLOSE CALLS =====================
         function spawn() {
-            const baseW = pw();
+            const baseW = baseObstacleW();
             // Cones are smaller
             const isCone = Math.random() < 0.12;
             const type = isCone
@@ -467,6 +476,21 @@
 
             // Engine pitch
             snd.engine.playbackRate = 0.8 + speedMul * 0.2;
+
+            // Siren sound (Ambulance & Police)
+            let hasSirenVehicle = false;
+            for (const o of obstacles) {
+                if (o.type === 'ambulance' || o.type === 'police') {
+                    hasSirenVehicle = true;
+                    break;
+                }
+            }
+            if (hasSirenVehicle && snd.ambulance.paused) {
+                snd.ambulance.volume = 0.4;
+                snd.ambulance.play().catch(() => {});
+            } else if (!hasSirenVehicle && !snd.ambulance.paused) {
+                snd.ambulance.pause();
+            }
         }
 
         // ===================== DRAW =====================
@@ -542,7 +566,11 @@
             // Player car
             const pi = img.player;
             if (pi.complete && pi.naturalWidth) {
-                ctx.drawImage(pi, _px, _py, _pw, _ph);
+                ctx.save();
+                ctx.translate(_px + _pw / 2, _py + _ph / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.drawImage(pi, -_ph / 2, -_pw / 2, _ph, _pw);
+                ctx.restore();
             }
 
             // Particles
@@ -622,6 +650,8 @@
             snd.engine.currentTime = 0;
             snd.engine.volume = 0.3;
             snd.engine.play().catch(() => {});
+            snd.ambulance.pause();
+            snd.ambulance.currentTime = 0;
 
             rafId = requestAnimationFrame(loop);
         }
@@ -632,6 +662,7 @@
             cancelAnimationFrame(rafId);
             snd.engine.pause();
             snd.music.pause();
+            snd.ambulance.pause();
             keys.l = keys.r = false;
             $('pause-screen').classList.remove('hidden');
             $('pause-btn').classList.add('hidden');
@@ -653,6 +684,7 @@
             cancelAnimationFrame(rafId);
             snd.engine.pause();
             snd.music.pause();
+            snd.ambulance.pause();
             snd.crash.currentTime = 0;
             snd.crash.play().catch(() => {});
             keys.l = keys.r = false;
